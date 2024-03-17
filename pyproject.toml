@@ -1,0 +1,51 @@
+[tool.poetry]
+name = "handwriting-recognition"
+version = "0.1.0"
+description = ""
+authors = ["Faraz Ghasemzadeh <faraz.g2000@gmail.com>"]
+readme = "README.md"
+packages = [
+    { include = "handwriting_recognition" }
+]
+
+
+[tool.poetry.dependencies]
+python = "^3.12"
+pandas = "^2.2.1"
+numpy = "^1.26.4"
+matplotlib = "^3.8.3"
+scikit-learn = "^1.4.1.post1"
+opencv-python = "^4.9.0.80"
+pillow = "^10.2.0"
+kaggle = "^1.6.6"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.1.1"
+pre-commit = "^3.6.2"
+ipykernel = "^6.29.3"
+jupyter = "^1.0.0"
+
+[tool.black]
+line-length = 119
+target-version = [ 'py310', 'py311' ]
+include = '\.pyi?$'
+exclude = '''
+/(
+    \.git
+  | __pycache__
+  | \.tox
+  | \.venv
+  | build
+  | dist
+  | docs
+  | notes
+)/
+'''
+
+[tool.isort]
+profile = "black"
+line_length = 119
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
