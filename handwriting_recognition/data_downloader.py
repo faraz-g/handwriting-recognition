@@ -1,12 +1,14 @@
 import shutil
 import sys
-from pathlib import Path
 
 import kaggle
 
+from handwriting_recognition.utils import get_dataset_folder_path
+
 
 def download_data_from_kaggle() -> None:
-    output_dataset_dir = Path(__file__).parent.parent / "dataset" / "raw"
+    dataset_folder = get_dataset_folder_path()
+    output_dataset_dir = dataset_folder.joinpath("raw")
 
     print(f"Downloading raw data to {output_dataset_dir}")
     confirmation = input(
@@ -32,7 +34,7 @@ def download_data_from_kaggle() -> None:
         new_path = output_dataset_dir / dataset
         shutil.move(original_path, new_path)
         shutil.rmtree(original_path.parent)
-        shutil.move(output_dataset_dir / f"written_name_{dataset}_v2.csv", output_dataset_dir / f"{dataset}.csv")
+        shutil.move(output_dataset_dir / f"written_name_{dataset}_v2.csv", dataset_folder.joinpath(f"{dataset}.csv"))
 
     print("Finished!")
 
