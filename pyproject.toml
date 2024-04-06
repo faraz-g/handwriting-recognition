@@ -10,7 +10,7 @@ packages = [
 
 
 [tool.poetry.dependencies]
-python = "^3.12"
+python = "^3.11"
 pandas = "^2.2.1"
 numpy = "^1.26.4"
 matplotlib = "^3.8.3"
@@ -19,6 +19,13 @@ opencv-python = "^4.9.0.80"
 pillow = "^10.2.0"
 kaggle = "^1.6.6"
 transformers = "^4.40.1"
+albumentations = "^1.4.2"
+torch = [
+    {url = "https://download.pytorch.org/whl/cu117/torch-2.0.0%2Bcu117-cp311-cp311-linux_x86_64.whl", platform = "linux", python = ">=3.11 <3.12"},
+    {url = "https://download.pytorch.org/whl/cpu/torch-2.0.0-cp311-none-macosx_11_0_arm64.whl", platform = "darwin", python = ">=3.11 <3.12"},
+    {url = "https://download.pytorch.org/whl/cpu/torch-2.0.0%2Bcpu-cp311-cp311-win_amd64.whl", platform = "win32", python = ">=3.11 <3.12"},
+]
+tensorboardx = "^2.6.2.2"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.1.1"

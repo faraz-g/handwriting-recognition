@@ -1,9 +1,18 @@
+import argparse
 import shutil
 import sys
 
 import kaggle
 
 from handwriting_recognition.utils import get_dataset_folder_path
+
+# from multiprocessing import Pool
+
+
+def pre_process() -> None:
+    pass
+    # dataset_folder = get_dataset_folder_path()
+    # processed_dataset_dir = dataset_folder.joinpath("processed")
 
 
 def download_data_from_kaggle() -> None:
@@ -34,10 +43,25 @@ def download_data_from_kaggle() -> None:
         new_path = output_dataset_dir / dataset
         shutil.move(original_path, new_path)
         shutil.rmtree(original_path.parent)
-        shutil.move(output_dataset_dir / f"written_name_{dataset}_v2.csv", dataset_folder.joinpath(f"{dataset}.csv"))
+        shutil.move(
+            output_dataset_dir / f"written_name_{dataset}_v2.csv", output_dataset_dir.joinpath(f"{dataset}.csv")
+        )
 
     print("Finished!")
 
 
 if __name__ == "__main__":
-    sys.exit(download_data_from_kaggle())
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--download", action="store_true")
+    parser.add_argument("--pre_process", action="store_true")
+
+    args = parser.parse_args()
+
+    if not (args.download or args.pre_process):
+        raise NotImplementedError("You must either pass in --download, --pre_process or both")
+
+    if args.download:
+        download_data_from_kaggle()
+
+    if args.process:
+        pre_process()
