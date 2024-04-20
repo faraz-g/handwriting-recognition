@@ -4,10 +4,14 @@ import shutil
 import sys
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 from functools import partial
+from pathlib import Path
 
 import kaggle
+import numpy as np
 import pandas as pd
 from PIL import Image
+
+# from skimage.measure import label
 from tqdm import tqdm
 
 from handwriting_recognition.utils import get_dataset_folder_path
@@ -22,6 +26,8 @@ def filter_missing_rows(labels: pd.DataFrame, dataset_folder: os.PathLike) -> pd
 
     # Remove rows where there is no label
     labels = labels[~labels["IDENTITY"].isna()]
+    labels = labels[~labels["I'M NOT SURE"].isna()]
+    labels = labels[~labels["EMPTY"].isna()]
 
     # Remove rows where the filename is missing
     partial_func = partial(_return_path_if_file_missing, directory=dataset_folder)
@@ -40,11 +46,20 @@ def filter_missing_rows(labels: pd.DataFrame, dataset_folder: os.PathLike) -> pd
 
 
 def process_single_image(image_path: os.PathLike, target_folder: os.PathLike) -> None:
-    image = Image.open(image_path)
+    image = Image.open(image_path).convert("L")
+    # Binarize image
+    im_arr = np.array(image)
+    im_arr = np.invert(im_arr).astype("float64")
+    im_arr /= 255.0
+    im_arr[im_arr < 0.1] = 0
+    im_arr[im_arr != 0] = 1
+    # Crop unwanted regions
+    # labelled_arr = label(im_arr)
 
-    # TODO add processing here
-
-    image.save(os.path.join(target_folder, os.path.basename(image_path)))
+    # Save image
+    processed_image = Image.fromarray(im_arr)
+    out_path = Path(os.path.join(target_folder, os.path.basename(image_path)))
+    processed_image.save(out_path.with_suffix(".tiff"))
 
 
 def process_images(image_folder: os.PathLike, target_folder: os.PathLike) -> None:
@@ -52,7 +67,7 @@ def process_images(image_folder: os.PathLike, target_folder: os.PathLike) -> Non
     all_files = [os.path.join(image_folder, file_path) for file_path in os.listdir(image_folder)]
     partial_func = partial(process_single_image, target_folder=target_folder)
 
-    with ProcessPoolExecutor(2 * os.cpu_count()) as p:
+    with ProcessPoolExecutor(os.cpu_count() - 1) as p:
         with tqdm(total=len(all_files)) as pbar:
             for _ in p.map(partial_func, all_files, chunksize=4):
                 pbar.update()

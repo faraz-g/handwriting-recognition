@@ -162,4 +162,7 @@ cython_debug/
 # The images and labels data
 dataset/
 
+#
+notebnooks/test
+
 .DS_Store
