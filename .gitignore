@@ -163,6 +163,6 @@ cython_debug/
 dataset/
 
 #
-notebnooks/test
+notebooks/test
 
 .DS_Store

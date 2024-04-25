@@ -7,17 +7,14 @@ from functools import partial
 from pathlib import Path
 
 import kaggle
-import numpy as np
 import pandas as pd
-from PIL import Image
-
-# from skimage.measure import label
 from tqdm import tqdm
 
+from handwriting_recognition.processing_helpers import process_single_image
 from handwriting_recognition.utils import get_dataset_folder_path
 
 
-def filter_missing_rows(labels: pd.DataFrame, dataset_folder: os.PathLike) -> pd.DataFrame:
+def filter_missing_rows(labels: pd.DataFrame, target_folder: os.PathLike) -> pd.DataFrame:
     def _return_path_if_file_missing(file: str, directory: os.PathLike) -> str:
         if not os.path.exists(os.path.join(directory, file)):
             return file
@@ -26,13 +23,13 @@ def filter_missing_rows(labels: pd.DataFrame, dataset_folder: os.PathLike) -> pd
 
     # Remove rows where there is no label
     labels = labels[~labels["IDENTITY"].isna()]
-    labels = labels[~labels["I'M NOT SURE"].isna()]
-    labels = labels[~labels["EMPTY"].isna()]
+    labels = labels[~labels["IDENTITY"].str.lower().isin(["i'm not sure", "unreadable", "empty"])]
 
     # Remove rows where the filename is missing
-    partial_func = partial(_return_path_if_file_missing, directory=dataset_folder)
+    partial_func = partial(_return_path_if_file_missing, directory=target_folder)
 
     missing_files = set()
+    labels["FILENAME"] = labels["FILENAME"].apply(lambda x: str(Path(x).with_suffix(".tiff")))
     file_paths = labels["FILENAME"].to_list()
     with ThreadPoolExecutor(2 * os.cpu_count()) as p:
         with tqdm(total=len(file_paths)) as pbar:
@@ -45,21 +42,12 @@ def filter_missing_rows(labels: pd.DataFrame, dataset_folder: os.PathLike) -> pd
     return labels
 
 
-def process_single_image(image_path: os.PathLike, target_folder: os.PathLike) -> None:
-    image = Image.open(image_path).convert("L")
-    # Binarize image
-    im_arr = np.array(image)
-    im_arr = np.invert(im_arr).astype("float64")
-    im_arr /= 255.0
-    im_arr[im_arr < 0.1] = 0
-    im_arr[im_arr != 0] = 1
-    # Crop unwanted regions
-    # labelled_arr = label(im_arr)
+def clean_and_validate_labels(labels: pd.DataFrame, target_folder: str) -> pd.DataFrame:
+    labels = labels.rename(columns={"FILENAME": "file_name", "IDENTITY": "label"})
+    labels["file_path"] = labels["file_name"].apply(lambda x: os.path.join(target_folder, x))
+    labels["label"] = labels["label"].apply(lambda x: x.lower())
 
-    # Save image
-    processed_image = Image.fromarray(im_arr)
-    out_path = Path(os.path.join(target_folder, os.path.basename(image_path)))
-    processed_image.save(out_path.with_suffix(".tiff"))
+    return labels
 
 
 def process_images(image_folder: os.PathLike, target_folder: os.PathLike) -> None:
@@ -81,21 +69,29 @@ def pre_process() -> None:
     except FileNotFoundError:
         pass
 
+    if not os.path.exists(dataset_folder / "raw"):
+        raise NotImplementedError("You must download the data first before pre-processing!")
+
     pre_processed_folder.mkdir()
     for dataset in ["train", "test", "validation"]:
+        print(f"Pre-processing {dataset} dataset")
         labels_file_name = f"{dataset}.csv"
         image_folder = dataset_folder / "raw" / dataset
         target_image_folder = pre_processed_folder / dataset
 
         process_images(image_folder=image_folder, target_folder=target_image_folder)
 
+        print(f"Processing labels for {dataset} dataset")
         labels = pd.read_csv(dataset_folder / "raw" / labels_file_name)
-        labels = filter_missing_rows(labels=labels, dataset_folder=target_image_folder)
-        labels = labels.rename(columns={"FILENAME": "file_name", "IDENTITY": "label"})
-        labels["file_path"] = labels["file_name"].apply(lambda x: os.path.join(target_image_folder, x))
-        labels["label"] = labels["label"].apply(lambda x: x.lower())
-
+        original_len = len(labels)
+        labels = filter_missing_rows(labels=labels, target_folder=target_image_folder)
+        labels = clean_and_validate_labels(labels, target_folder=target_image_folder)
         labels.to_csv(pre_processed_folder / labels_file_name, index=None)
+        final_len = len(labels)
+
+        print(
+            f"Finished processing {dataset} labels! Removed: {original_len - final_len} bad labels. Original count: {original_len}. Final count: {final_len}"
+        )
 
 
 def download_data_from_kaggle() -> None:
