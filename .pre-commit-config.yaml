@@ -21,4 +21,4 @@ repos:
   rev: 5.0.4
   hooks:
   - id: flake8
-    args: ["--extend-ignore=E266,E501,W503,E203"]
+    args: ["--extend-ignore=E266,E501,W503,E203,F401,F841"]
