@@ -161,3 +161,8 @@ cython_debug/
 
 # The images and labels data
 dataset/
+
+#
+notebooks/test
+
+.DS_Store
