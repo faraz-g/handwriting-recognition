@@ -45,3 +45,10 @@ Now whenever you invoke `git commit`, the pre-commit hooks will lint your code a
 ```bash
 poetry run python handwriting_recognition/data_downloader.py
 ```
+
+### Troubleshoot
+
+The torch and torchvision packages may not install correctly. A quick solution is:
+```bash
+poetry run python -m pip install torch torchvision
+```
