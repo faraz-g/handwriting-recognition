@@ -12,6 +12,7 @@ from tqdm import tqdm
 
 from handwriting_recognition.processing_helpers import process_single_image
 from handwriting_recognition.utils import get_dataset_folder_path
+import string
 
 
 def filter_missing_rows(labels: pd.DataFrame, target_folder: os.PathLike) -> pd.DataFrame:
@@ -24,6 +25,10 @@ def filter_missing_rows(labels: pd.DataFrame, target_folder: os.PathLike) -> pd.
     # Remove rows where there is no label
     labels = labels[~labels["IDENTITY"].isna()]
     labels = labels[~labels["IDENTITY"].str.lower().isin(["i'm not sure", "unreadable", "empty"])]
+
+    # Remove short and long labels
+    labels = labels[labels["IDENTITY"].apply(len) > 3]
+    labels = labels[labels["IDENTITY"].apply(len) < 20]
 
     # Remove rows where the filename is missing
     partial_func = partial(_return_path_if_file_missing, directory=target_folder)
@@ -43,9 +48,20 @@ def filter_missing_rows(labels: pd.DataFrame, target_folder: os.PathLike) -> pd.
 
 
 def clean_and_validate_labels(labels: pd.DataFrame, target_folder: str) -> pd.DataFrame:
+    def _process_characters(in_str: str) -> str:
+        out_str = ""
+        for char in in_str:
+            if char in string.ascii_lowercase + " ":
+                out_str += char
+            else:
+                out_str += " "
+        return out_str
+
     labels = labels.rename(columns={"FILENAME": "file_name", "IDENTITY": "label"})
     labels["file_path"] = labels["file_name"].apply(lambda x: os.path.join(target_folder, x))
     labels["label"] = labels["label"].apply(lambda x: x.lower())
+
+    labels["label"] = labels["label"].apply(_process_characters)
 
     return labels
 

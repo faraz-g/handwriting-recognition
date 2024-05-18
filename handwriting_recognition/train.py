@@ -7,12 +7,14 @@ import torch
 from torch.nn.modules.loss import CrossEntropyLoss
 from torch.utils.data.dataloader import DataLoader
 from tqdm import tqdm
+import random
 
-from handwriting_recognition.model import HandwritingRecognitionModel
+from handwriting_recognition.model.model import HandwritingRecognitionModel
+from handwriting_recognition.model.attention import AttnLabelConverter
 from handwriting_recognition.modelling_utils import get_image_model_and_processor, get_optimizer
-from handwriting_recognition.utils import TrainingConfig, get_config
-
-# from handwriting_recognition.data_loader import HandWritingDataset # TODO
+from handwriting_recognition.utils import TrainingConfig, get_dataset_folder_path
+from handwriting_recognition.dataset import HandWritingDataset, train_augmentations
+from pathlib import Path
 
 torch.backends.cudnn.benchmark = True
 
@@ -34,23 +36,84 @@ class LossTracker:
         self.average = self.sum / self.count_iters
 
 
-def train(run_prefix: str, config_path: str, out_dir: str) -> None:
-    os.makedirs(out_dir, exist_ok=True)
-    config = TrainingConfig.from_path(config_path=config_path)
+def _single_epoch(
+    epoch: int,
+    model: torch.nn.Module,
+    optimizer: torch.optim.Optimizer,
+    loss_function: CrossEntropyLoss,
+    train_loader: DataLoader,
+    config: TrainingConfig,
+    converter: AttnLabelConverter,
+    device: torch.device,
+):
+    max_batches = config.batches_per_epoch
+    model = model.train()
+    loss_tracker = LossTracker()
 
-    print("Training with config: \n", json.dumps(config.to_dict(), indent=1))
+    with tqdm(total=(max_batches), desc=f"Training Epoch: {epoch}", ncols=0) as pbar:
+        for i, data in enumerate(train_loader):
+            images = data[0]
+            labels = data[1]
+
+            text, length = converter.encode(labels, batch_max_length=config.max_text_length)
+
+            text = text.to(device)
+            length = length.to(device)
+            images = images.to(device)
+
+            preds = model(x=images, y=text[:, :-1], is_train=True)
+            target = text[:, 1:]
+
+            loss = loss_function(preds.view(-1, preds.shape[-1]), target.contiguous().view(-1))
+
+            loss_tracker.update(loss.item(), images.size(0))
+
+            loss.backward()
+            optimizer.step()
+
+            lr = optimizer.param_groups[0]["lr"]
+            pbar.set_postfix_str(f"LR: {lr:.4f} Avg. Loss: {loss_tracker.average:.4f}")
+            pbar.update()
+
+            if i + 1 == max_batches:
+                break
+
+
+def train(config_name: str, out_dir: str) -> None:
+    os.makedirs(out_dir, exist_ok=True)
+    config_path = Path(__file__).parent.joinpath("configs", config_name).with_suffix(".json")
+    config = TrainingConfig.from_path(config_path=config_path)
+    print("Training with config: \n", config.model_dump_json(indent=1))
+
+    random.seed(config.seed)
+    np.random.seed(config.seed)
+    torch.manual_seed(config.seed)
+    torch.cuda.manual_seed(config.seed)
 
     image_model, image_processor = get_image_model_and_processor(
         model_name=config.feature_extractor_config.hf_model_name,
         processor_name=config.feature_extractor_config.hf_pre_processor_name,
     )
 
+    data_train = HandWritingDataset(
+        data_path=get_dataset_folder_path() / "pre_processed" / "train.csv",
+        image_processor=image_processor,
+        augmentations=train_augmentations(),
+    )
+    data_val = HandWritingDataset(
+        data_path=get_dataset_folder_path() / "pre_processed" / "validation.csv", image_processor=image_processor
+    )
+
+    config.max_text_length = data_train.max_length
+    config.num_classes = len(data_train.char_set)
+
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
-    model = HandwritingRecognitionModel(image_feature_extractor=image_model)
+    model = HandwritingRecognitionModel(image_feature_extractor=image_model, training_config=config)
 
     model = model.to(device)
-    loss_function = CrossEntropyLoss().to(device)
+    loss_function = CrossEntropyLoss(ignore_index=0).to(device)
+
     optimizer = get_optimizer(
         model=model,
         optim_type=config.optim_config.optim_type,
@@ -59,11 +122,46 @@ def train(run_prefix: str, config_path: str, out_dir: str) -> None:
         weight_decay=config.optim_config.weight_decay,
     )
 
-    # TODO
-    # train_loader = DataLoader(
-    #     data_train,
-    #     batch_size=config.batch_size,
-    #     pin_memory=False,
-    #     shuffle=True,
-    #     drop_last=True,
-    # )
+    train_loader = DataLoader(
+        data_train,
+        batch_size=config.batch_size,
+        pin_memory=False,
+        shuffle=True,
+        drop_last=True,
+    )
+
+    val_loader = DataLoader(
+        data_val,
+        batch_size=config.batch_size,
+        pin_memory=False,
+        shuffle=True,
+        drop_last=True,
+    )
+
+    converter = AttnLabelConverter(character_set=data_train.char_set)
+
+    out_folder = Path(out_dir) / config_name
+    os.makedirs(out_folder, exist_ok=True)
+    epochs_since_best_loss = 0
+
+    for epoch in range(config.max_epochs):
+        _single_epoch(
+            epoch=epoch,
+            model=model,
+            optimizer=optimizer,
+            loss_function=loss_function,
+            train_loader=train_loader,
+            config=config,
+            converter=converter,
+            device=device,
+        )
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--config_name", default="default_config", type=str)
+    parser.add_argument("--out_dir", default="model_outputs")
+
+    args = parser.parse_args()
+
+    train(**vars(args))

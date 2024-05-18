@@ -1,6 +1,5 @@
 from functools import partial
 
-from PIL import Image
 from torch import nn, optim
 from transformers import ViTImageProcessor, ViTModel
 
@@ -22,9 +21,10 @@ def get_optimizer(
     momentum: float,
     weight_decay: float,
 ) -> optim.Optimizer:
-    if optim_type == "SGD":
+
+    if optim_type.lower() == "sgd":
         optimizer = partial(optim.SGD, nesterov=True, momentum=momentum)
-    elif optim_type == "Adam":
+    elif optim_type.lower() == "adam":
         optimizer = optim.Adam
     else:
         raise NotImplementedError("Must be one of Adam / SGD")
