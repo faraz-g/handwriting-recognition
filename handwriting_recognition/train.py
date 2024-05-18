@@ -79,6 +79,24 @@ def _single_epoch(
                 break
 
 
+def _evaluate(
+    epoch: int,
+    model: torch.nn.Module,
+    val_loader: DataLoader,
+    device: torch.device,
+):
+    # TODO
+    return
+
+    model = model.eval()
+
+    with torch.inference_mode():
+        pbar = tqdm(val_loader, desc=f"Validating Epoch: {epoch}", ncols=0)
+        for data in pbar:
+            images = data[0]
+            labels = data[1]
+
+
 def train(config_name: str, out_dir: str) -> None:
     os.makedirs(out_dir, exist_ok=True)
     config_path = Path(__file__).parent.joinpath("configs", config_name).with_suffix(".json")
@@ -155,6 +173,48 @@ def train(config_name: str, out_dir: str) -> None:
             converter=converter,
             device=device,
         )
+
+        if epoch % config.evaluation_frequency == 0:
+            validation_loss = _evaluate(
+                epoch=epoch,
+                model=model,
+                val_loader=val_loader,
+                device=device,
+            )
+            if validation_loss < best_val_loss:
+                epochs_since_best_loss = 0
+                best_val_loss = validation_loss
+                torch.save(
+                    {
+                        "epoch": epoch,
+                        "state": model.state_dict(),
+                        "best_val_loss": best_val_loss,
+                    },
+                    os.path.join(out_folder, "best"),
+                )
+            else:
+                epochs_since_best_loss += 1
+
+            print(f"Validation Loss at epoch {epoch}: {validation_loss}. Best Loss: {best_val_loss}")
+
+        torch.save(
+            {
+                "epoch": epoch,
+                "state": model.state_dict(),
+                "best_val_loss": best_val_loss,
+            },
+            os.path.join(out_folder, f"{epoch}"),
+        )
+        torch.save(
+            {
+                "epoch": epoch,
+                "state": model.state_dict(),
+                "best_val_loss": best_val_loss,
+            },
+            os.path.join(out_folder, "last"),
+        )
+        if epochs_since_best_loss > config.early_stopping_threshold:
+            break
 
 
 if __name__ == "__main__":
