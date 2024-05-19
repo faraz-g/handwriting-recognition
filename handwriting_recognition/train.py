@@ -1,5 +1,4 @@
 import argparse
-import json
 import os
 
 import numpy as np
@@ -9,8 +8,8 @@ from torch.utils.data.dataloader import DataLoader
 from tqdm import tqdm
 import random
 
+from handwriting_recognition.label_converter import LabelConverter
 from handwriting_recognition.model.model import HandwritingRecognitionModel
-from handwriting_recognition.model.attention import AttnLabelConverter
 from handwriting_recognition.modelling_utils import get_image_model_and_processor, get_optimizer
 from handwriting_recognition.utils import TrainingConfig, get_dataset_folder_path
 from handwriting_recognition.dataset import HandWritingDataset, train_augmentations
@@ -43,7 +42,7 @@ def _single_epoch(
     loss_function: CrossEntropyLoss,
     train_loader: DataLoader,
     config: TrainingConfig,
-    converter: AttnLabelConverter,
+    converter: LabelConverter,
     device: torch.device,
 ):
     max_batches = config.batches_per_epoch
@@ -156,7 +155,7 @@ def train(config_name: str, out_dir: str) -> None:
         drop_last=True,
     )
 
-    converter = AttnLabelConverter(character_set=data_train.char_set)
+    converter = LabelConverter(character_set=data_train.char_set)
 
     out_folder = Path(out_dir) / config_name
     os.makedirs(out_folder, exist_ok=True)
