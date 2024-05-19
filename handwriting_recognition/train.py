@@ -10,9 +10,9 @@ import random
 
 from handwriting_recognition.label_converter import LabelConverter
 from handwriting_recognition.model.model import HandwritingRecognitionModel
-from handwriting_recognition.modelling_utils import get_image_model_and_processor, get_optimizer
+from handwriting_recognition.modelling_utils import get_image_model, get_optimizer
 from handwriting_recognition.utils import TrainingConfig, get_dataset_folder_path
-from handwriting_recognition.dataset import HandWritingDataset, train_augmentations
+from handwriting_recognition.dataset import HandWritingDataset
 from pathlib import Path
 
 torch.backends.cudnn.benchmark = True
@@ -107,18 +107,15 @@ def train(config_name: str, out_dir: str) -> None:
     torch.manual_seed(config.seed)
     torch.cuda.manual_seed(config.seed)
 
-    image_model, image_processor = get_image_model_and_processor(
-        model_name=config.feature_extractor_config.hf_model_name,
-        processor_name=config.feature_extractor_config.hf_pre_processor_name,
-    )
+    image_model = get_image_model(model_name=config.feature_extractor_config.model_name)
 
     data_train = HandWritingDataset(
         data_path=get_dataset_folder_path() / "pre_processed" / "train.csv",
-        image_processor=image_processor,
-        augmentations=train_augmentations(),
+        img_size=config.feature_extractor_config.input_size,
     )
     data_val = HandWritingDataset(
-        data_path=get_dataset_folder_path() / "pre_processed" / "validation.csv", image_processor=image_processor
+        data_path=get_dataset_folder_path() / "pre_processed" / "validation.csv",
+        img_size=config.feature_extractor_config.input_size,
     )
 
     config.max_text_length = data_train.max_length

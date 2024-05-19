@@ -1,5 +1,4 @@
 import torch
-from transformers import ViTImageProcessor, ViTModel
 from torch import nn
 from handwriting_recognition.utils import TrainingConfig
 from handwriting_recognition.model.bidirectional_lstm import BidirectionalLSTM
@@ -7,16 +6,14 @@ from handwriting_recognition.model.attention import Attention
 
 
 class HandwritingRecognitionModel(torch.nn.Module):
-    def __init__(self, image_feature_extractor: ViTModel, training_config: TrainingConfig):
+    def __init__(self, image_feature_extractor: nn.Module, training_config: TrainingConfig):
         super(HandwritingRecognitionModel, self).__init__()
 
         self.training_config = training_config
 
         # Image Feature Extraction
         self.image_feature_extractor = image_feature_extractor
-        # self.image_processor = image_processor
-
-        self.img_hidden_size = image_feature_extractor.config.hidden_size
+        self.img_hidden_size = self.image_feature_extractor.embed_dim
 
         # Sequence Modelling
         self.sequence_modelling = nn.Sequential(
@@ -39,10 +36,9 @@ class HandwritingRecognitionModel(torch.nn.Module):
         )
 
     def forward(self, x, y, is_train):
-        outputs = self.image_feature_extractor(pixel_values=x)
-        image_embeddings = outputs.last_hidden_state[:, 0]
+        image_features = self.image_feature_extractor.forward_features(x)
 
-        lstm_features = self.sequence_modelling(image_embeddings)
+        lstm_features = self.sequence_modelling(image_features)
 
         prediction = self.prediction(
             lstm_features.contiguous(), y, is_train, batch_max_length=self.training_config.max_text_length

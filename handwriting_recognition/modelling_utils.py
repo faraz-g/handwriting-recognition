@@ -1,17 +1,11 @@
 from functools import partial
 
 from torch import nn, optim
-from transformers import ViTImageProcessor, ViTModel
+from timm import create_model
 
 
-def get_image_model_and_processor(model_name: str, processor_name: str | None) -> tuple[ViTModel, ViTImageProcessor]:
-    if processor_name is None:
-        processor_name = model_name
-
-    processor = ViTImageProcessor.from_pretrained(processor_name)
-    model = ViTModel.from_pretrained(model_name)
-
-    return model, processor
+def get_image_model(model_name: str) -> nn.Module:
+    return create_model(model_name=model_name, pretrained=True, in_chans=1)
 
 
 def get_optimizer(

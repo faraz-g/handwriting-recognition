@@ -51,7 +51,7 @@ def clean_and_validate_labels(labels: pd.DataFrame, target_folder: str) -> pd.Da
     def _process_characters(in_str: str) -> str:
         out_str = ""
         for char in in_str:
-            if char in string.ascii_lowercase + " ":
+            if char in string.ascii_uppercase + " ":
                 out_str += char
             else:
                 out_str += " "
@@ -59,7 +59,7 @@ def clean_and_validate_labels(labels: pd.DataFrame, target_folder: str) -> pd.Da
 
     labels = labels.rename(columns={"FILENAME": "file_name", "IDENTITY": "label"})
     labels["file_path"] = labels["file_name"].apply(lambda x: os.path.join(target_folder, x))
-    labels["label"] = labels["label"].apply(lambda x: x.lower())
+    labels["label"] = labels["label"].apply(lambda x: x.upper())
 
     labels["label"] = labels["label"].apply(_process_characters)
 

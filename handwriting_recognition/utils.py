@@ -16,8 +16,8 @@ class OptimizerConfig(BaseModel):
 
 
 class FeatureExtractorConfig(BaseModel):
-    hf_model_name: str
-    hf_pre_processor_name: str
+    model_name: str
+    input_size: int
 
 
 class TrainingConfig(BaseModel):
