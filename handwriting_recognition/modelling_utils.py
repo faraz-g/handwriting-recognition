@@ -1,18 +1,17 @@
-from functools import partial
+from functools import partial, cache
 
-from PIL import Image
 from torch import nn, optim
-from transformers import ViTImageProcessor, ViTModel
+from timm import create_model
+import torch
 
 
-def get_image_model_and_processor(model_name: str, processor_name: str | None) -> tuple[ViTModel, ViTImageProcessor]:
-    if processor_name is None:
-        processor_name = model_name
+@cache
+def get_device() -> torch.device:
+    return torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
-    processor = ViTImageProcessor.from_pretrained(processor_name)
-    model = ViTModel.from_pretrained(model_name)
 
-    return model, processor
+def get_image_model(model_name: str) -> nn.Module:
+    return create_model(model_name=model_name, pretrained=True, in_chans=1)
 
 
 def get_optimizer(
@@ -22,9 +21,10 @@ def get_optimizer(
     momentum: float,
     weight_decay: float,
 ) -> optim.Optimizer:
-    if optim_type == "SGD":
+
+    if optim_type.lower() == "sgd":
         optimizer = partial(optim.SGD, nesterov=True, momentum=momentum)
-    elif optim_type == "Adam":
+    elif optim_type.lower() == "adam":
         optimizer = optim.Adam
     else:
         raise NotImplementedError("Must be one of Adam / SGD")
