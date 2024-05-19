@@ -32,7 +32,7 @@ class HandwritingRecognitionModel(torch.nn.Module):
         self.prediction = Attention(
             self.sequence_modelling_out_size,
             self.training_config.lstm_hidden_size,
-            num_classes=training_config.max_text_length,
+            num_classes=training_config.num_classes,
         )
 
     def forward(self, x, y, is_train):

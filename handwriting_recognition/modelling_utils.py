@@ -1,7 +1,13 @@
-from functools import partial
+from functools import partial, cache
 
 from torch import nn, optim
 from timm import create_model
+import torch
+
+
+@cache
+def get_device() -> torch.device:
+    return torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 
 def get_image_model(model_name: str) -> nn.Module:

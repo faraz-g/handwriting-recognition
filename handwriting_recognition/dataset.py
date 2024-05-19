@@ -48,17 +48,13 @@ class HandWritingDataset(Dataset):
         image_path = image_data["file_path"]
         image = np.array(Image.open(image_path))
         image = image.astype(np.float32)
-        # image = np.expand_dims(image, axis=0)
 
-        plt.imshow(image)
-        # plt.imshow(image.swapaxes(0, 1).swapaxes(1, 2))
-        plt.show()
-        print(image.shape)
+        # plt.imshow(image)
+        # plt.show()
         image = self.augmentations(image=image, force_apply=True)["image"]
-        print(image.shape)
 
-        plt.imshow(image.swapaxes(0, 1).swapaxes(1, 2))
-        plt.show()
+        # plt.imshow(image.swapaxes(0, 1).swapaxes(1, 2))
+        # plt.show()
 
         return image, label
 

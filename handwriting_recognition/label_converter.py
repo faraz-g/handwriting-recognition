@@ -4,10 +4,12 @@ import torch
 class LabelConverter:
     """Convert between text-label and text-index"""
 
-    def __init__(self, character_set: list[str]):
+    def __init__(self, character_set: list[str], max_text_length: int):
         # character (str): set of the possible characters.
         # [GO] for the start token of the attention decoder. [s] for end-of-sentence token.
         list_token = ["[GO]", "[s]"]  # ['[s]','[UNK]','[PAD]','[GO]']
+
+        self.max_text_length = max_text_length
         self.characters = list_token + character_set
         self.dict = {char: i for i, char in enumerate(self.characters)}
 
@@ -22,7 +24,7 @@ class LabelConverter:
             length : the length of output of attention decoder, which count [s] token also. [3, 7, ....] [batch_size]
         """
         length = [len(s) + 1 for s in text]  # +1 for [s] at end of sentence.
-        batch_max_length = max(length)  # this is not allowed for multi-gpu setting
+        batch_max_length = self.max_text_length + 1
 
         # additional +1 for [GO] at first step. batch_text is padded with [GO] token after [s] token.
         batch_text = torch.LongTensor(len(text), batch_max_length + 1).fill_(0)
