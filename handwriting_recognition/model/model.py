@@ -30,8 +30,8 @@ class HandwritingRecognitionModel(torch.nn.Module):
 
         # Prediction
         self.prediction = Attention(
-            self.sequence_modelling_out_size,
-            self.training_config.lstm_hidden_size,
+            input_size=self.sequence_modelling_out_size,
+            hidden_size=self.training_config.lstm_hidden_size,
             num_classes=training_config.num_classes,
         )
 

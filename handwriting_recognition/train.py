@@ -55,6 +55,8 @@ def _single_epoch(
 
     with tqdm(total=(max_batches), desc=f"Training Epoch: {epoch}", ncols=0) as pbar:
         for i, data in enumerate(train_loader):
+            optimizer.zero_grad()
+
             images = data[0]
             labels = data[1]
 
@@ -64,19 +66,49 @@ def _single_epoch(
             length = length.to(get_device())
             images = images.to(get_device())
 
+            # print(converter.decode(text, length), "\n-----")
+            # print(converter.decode(text[:, :-1], length), "\n-----")
+
             preds = model(x=images, y=text[:, :-1], is_train=True)
+
+            # print("Preds Shape:", preds.shape)
+
             target = text[:, 1:]
 
+            # print(converter.decode(target, length), "\n-----")
+
+            to_decode = preds[:, : text.shape[1] - 1, :]
+
+            _, preds_index = to_decode.max(2)
+            predicted_classes = preds.argmax(dim=-1)
+
+            # print(preds_index, predicted_classes)
+            # print(converter.decode(predicted_classes, length), "\n-----")
+            # print(converter.decode(preds_index, length), "\n-----")
+
             loss = loss_function(preds.view(-1, preds.shape[-1]), target.contiguous().view(-1))
+            # print("Loss:", loss.item())
 
             loss_tracker.add(loss)
 
             loss.backward()
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=3)
             optimizer.step()
+
+            # print(f"Epoch {epoch}, Loss: {loss.item()}")
 
             lr = optimizer.param_groups[0]["lr"]
             pbar.set_postfix_str(f"LR: {lr:.4f} Avg. Loss: {loss_tracker.val():.4f}")
             pbar.update()
+
+            # for name, param in model.named_parameters():
+            #     if param.grad is not None:
+            #         print(f"{name}: {param.grad.norm()}")
+
+            if i % 1000 == 0:
+                print("Target Text:", converter.decode(target, length))
+                predicted_classes = preds.argmax(dim=-1)
+                print("Predicted Text:", converter.decode(predicted_classes, length))
 
             if i + 1 == max_batches:
                 break
