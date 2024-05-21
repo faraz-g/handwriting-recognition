@@ -1,6 +1,7 @@
 import json
 from pathlib import Path
 from typing import Any, Optional
+
 from pydantic import BaseModel
 
 
@@ -28,6 +29,8 @@ class TrainingConfig(BaseModel):
     evaluation_frequency: int
     early_stopping_threshold: int
     optim_config: OptimizerConfig
+    train_dataset_size: int
+    val_dataset_size: int
     feature_extractor_config: FeatureExtractorConfig
     lstm_hidden_size: int
     max_text_length: int | None = None

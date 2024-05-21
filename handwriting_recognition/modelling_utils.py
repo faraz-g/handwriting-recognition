@@ -1,8 +1,8 @@
-from functools import partial, cache
+from functools import cache, partial
 
-from torch import nn, optim
-from timm import create_model
 import torch
+from timm import create_model
+from torch import nn, optim
 
 
 @cache
@@ -26,6 +26,9 @@ def get_optimizer(
         optimizer = partial(optim.SGD, nesterov=True, momentum=momentum)
     elif optim_type.lower() == "adam":
         optimizer = optim.Adam
+    elif optim_type.lower() == "adadelta":
+        optimizer = optim.Adadelta  # note, it has other terms like rho, and eps, which is different to adam.
+
     else:
         raise NotImplementedError("Must be one of Adam / SGD")
 

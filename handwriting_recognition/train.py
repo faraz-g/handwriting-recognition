@@ -1,20 +1,19 @@
 import argparse
 import os
+import random
+from pathlib import Path
 
 import numpy as np
 import torch
 from torch.nn.modules.loss import CrossEntropyLoss
 from torch.utils.data.dataloader import DataLoader
 from tqdm import tqdm
-import random
 
+from handwriting_recognition.dataset import HandWritingDataset
 from handwriting_recognition.label_converter import LabelConverter
 from handwriting_recognition.model.model import HandwritingRecognitionModel
-from handwriting_recognition.modelling_utils import get_image_model, get_optimizer
+from handwriting_recognition.modelling_utils import get_device, get_image_model, get_optimizer
 from handwriting_recognition.utils import TrainingConfig, get_dataset_folder_path
-from handwriting_recognition.dataset import HandWritingDataset
-from pathlib import Path
-from handwriting_recognition.modelling_utils import get_device
 
 torch.backends.cudnn.benchmark = True
 
@@ -98,7 +97,7 @@ def _single_epoch(
             # print(f"Epoch {epoch}, Loss: {loss.item()}")
 
             lr = optimizer.param_groups[0]["lr"]
-            pbar.set_postfix_str(f"LR: {lr:.4f} Avg. Loss: {loss_tracker.val():.4f}")
+            pbar.set_postfix_str(f"LR: {lr:.4f} Avg. Loss: {loss_tracker.val():.4f}")  # noqa: E231
             pbar.update()
 
             # for name, param in model.named_parameters():
@@ -150,10 +149,12 @@ def train(
     data_train = HandWritingDataset(
         data_path=get_dataset_folder_path() / "pre_processed" / "train.csv",
         img_size=config.feature_extractor_config.input_size,
+        size=config.train_dataset_size,
     )
     data_val = HandWritingDataset(
         data_path=get_dataset_folder_path() / "pre_processed" / "validation.csv",
         img_size=config.feature_extractor_config.input_size,
+        size=config.val_dataset_size,
     )
 
     config.max_text_length = data_train.max_length

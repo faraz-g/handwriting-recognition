@@ -52,3 +52,8 @@ The torch and torchvision packages may not install correctly. A quick solution i
 ```bash
 poetry run python -m pip install torch torchvision
 ```
+
+you may need to install timm:
+```bash
+poetry run python -m pip install timm
+```

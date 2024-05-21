@@ -1,25 +1,27 @@
 import os
+from functools import cached_property
 from typing import Any
 
-import cv2
-import pandas as pd
-
 import albumentations as A
-from albumentations.pytorch import ToTensorV2
-from torch.utils.data import Dataset
-from functools import cached_property
-from PIL import Image
-import numpy as np
+import cv2
 import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+from albumentations.pytorch import ToTensorV2
+from PIL import Image
+from torch.utils.data import Dataset
 
 
 class HandWritingDataset(Dataset):
-    def __init__(self, data_path: os.PathLike, img_size: int) -> None:
+    def __init__(self, data_path: os.PathLike, img_size: int, size: int = None) -> None:
         super().__init__()
         df = pd.read_csv(data_path)
         df = df.reset_index()
 
-        self.df = df
+        if size is None:
+            self.df = df
+        else:
+            self.df = df[:size]
 
         self.augmentations = A.Compose(
             [
