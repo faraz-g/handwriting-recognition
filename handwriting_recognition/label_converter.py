@@ -9,7 +9,9 @@ class LabelConverter:
         # [GO] for the start token of the attention decoder. [s] for end-of-sentence token.
         list_token = ["[GO]", "[s]"]  # ['[s]','[UNK]','[PAD]','[GO]']
 
+        self.original_character_set = character_set
         self.max_text_length = max_text_length
+
         self.characters = list_token + character_set
         self.dict = {char: i for i, char in enumerate(self.characters)}
 

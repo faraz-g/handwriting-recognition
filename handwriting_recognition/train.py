@@ -10,11 +10,12 @@ import random
 
 from handwriting_recognition.label_converter import LabelConverter
 from handwriting_recognition.model.model import HandwritingRecognitionModel
-from handwriting_recognition.modelling_utils import get_image_model, get_optimizer
+from handwriting_recognition.modelling_utils import get_image_model, get_optimizer, get_scheduler
 from handwriting_recognition.utils import TrainingConfig, get_dataset_folder_path
 from handwriting_recognition.dataset import HandWritingDataset
 from pathlib import Path
 from handwriting_recognition.modelling_utils import get_device
+from handwriting_recognition.eval import cer, wer
 
 torch.backends.cudnn.benchmark = True
 
@@ -44,6 +45,7 @@ def _single_epoch(
     epoch: int,
     model: torch.nn.Module,
     optimizer: torch.optim.Optimizer,
+    scheduler: torch.optim.lr_scheduler.LRScheduler,
     loss_function: CrossEntropyLoss,
     train_loader: DataLoader,
     config: TrainingConfig,
@@ -66,44 +68,21 @@ def _single_epoch(
             length = length.to(get_device())
             images = images.to(get_device())
 
-            # print(converter.decode(text, length), "\n-----")
-            # print(converter.decode(text[:, :-1], length), "\n-----")
-
             preds = model(x=images, y=text[:, :-1], is_train=True)
-
-            # print("Preds Shape:", preds.shape)
 
             target = text[:, 1:]
 
-            # print(converter.decode(target, length), "\n-----")
-
-            to_decode = preds[:, : text.shape[1] - 1, :]
-
-            _, preds_index = to_decode.max(2)
-            predicted_classes = preds.argmax(dim=-1)
-
-            # print(preds_index, predicted_classes)
-            # print(converter.decode(predicted_classes, length), "\n-----")
-            # print(converter.decode(preds_index, length), "\n-----")
-
             loss = loss_function(preds.view(-1, preds.shape[-1]), target.contiguous().view(-1))
-            # print("Loss:", loss.item())
 
             loss_tracker.add(loss)
 
             loss.backward()
-            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=3)
             optimizer.step()
+            scheduler.step()
 
-            # print(f"Epoch {epoch}, Loss: {loss.item()}")
-
-            lr = optimizer.param_groups[0]["lr"]
+            lr = scheduler.get_last_lr()[0]
             pbar.set_postfix_str(f"LR: {lr:.4f} Avg. Loss: {loss_tracker.val():.4f}")
             pbar.update()
-
-            # for name, param in model.named_parameters():
-            #     if param.grad is not None:
-            #         print(f"{name}: {param.grad.norm()}")
 
             if i % 1000 == 0:
                 print("Target Text:", converter.decode(target, length))
@@ -117,18 +96,53 @@ def _single_epoch(
 def _evaluate(
     epoch: int,
     model: torch.nn.Module,
-    val_loader: DataLoader,
+    data_loader: DataLoader,
+    converter: LabelConverter,
+    loss_function: CrossEntropyLoss,
 ):
-    # TODO
-    return
-
     model = model.eval()
 
+    all_preds = []
+    all_ground_truths = []
+    loss_tracker = LossTracker()
+
     with torch.inference_mode():
-        pbar = tqdm(val_loader, desc=f"Validating Epoch: {epoch}", ncols=0)
+        pbar = tqdm(data_loader, desc=f"Validating Epoch: {epoch}", ncols=0)
         for data in pbar:
             images = data[0]
             labels = data[1]
+
+            text, length = converter.encode(labels)
+
+            text = text.to(get_device())
+            length = length.to(get_device())
+            images = images.to(get_device())
+
+            preds = model(x=images, y=text[:, :-1], is_train=False)
+            target = text[:, 1:]
+
+            loss = loss_function(preds.view(-1, preds.shape[-1]), target.contiguous().view(-1))
+            loss_tracker.add(loss)
+
+            predicted_classes = preds.argmax(dim=-1)
+
+            ground_truth = converter.decode(target, length)
+            predicted = converter.decode(predicted_classes, length)
+
+            all_ground_truths.extend(ground_truth)
+            all_preds.extend(predicted)
+
+    all_preds = [x[: x.find("[s]")] for x in all_preds]
+    all_ground_truths = [x[: x.find("[s]")] for x in all_ground_truths]
+
+    print("Outputting sample of validation outputs.")
+    print(all_preds[:10])
+    print(all_ground_truths[:10])
+
+    character_error_rate = cer(all_preds, all_ground_truths)
+    word_error_rate = wer(all_preds, all_ground_truths)
+
+    return loss_tracker.val(), character_error_rate, word_error_rate, all_preds, all_ground_truths
 
 
 def train(
@@ -137,6 +151,9 @@ def train(
     resume: bool = False,
 ) -> None:
     os.makedirs(out_dir, exist_ok=True)
+    out_folder = Path(out_dir) / config_name
+    os.makedirs(out_folder, exist_ok=True)
+
     config_path = Path(__file__).parent.joinpath("configs", config_name).with_suffix(".json")
     config = TrainingConfig.from_path(config_path=config_path)
 
@@ -158,31 +175,32 @@ def train(
 
     config.max_text_length = data_train.max_length
     converter = LabelConverter(character_set=data_train.char_set, max_text_length=data_train.max_length)
-    config.num_classes = len(converter.characters)
 
-    print("Training with config: \n", config.model_dump_json(indent=1))
+    config.num_classes = len(converter.characters)
 
     model = HandwritingRecognitionModel(image_feature_extractor=image_model, training_config=config)
 
     if resume:
-        saved_model = torch.load(os.path.join(out_dir, resume))
+        saved_model = torch.load(os.path.join(out_folder, "last"))
         start_epoch = saved_model["epoch"] + 1
         model.load_state_dict(saved_model["state"])
         best_val_loss = saved_model["best_val_loss"]
+        converter = LabelConverter(
+            character_set=saved_model["character_set"], max_text_length=saved_model["max_text_length"]
+        )
+        config = TrainingConfig(**saved_model["config"])
+
     else:
         start_epoch = 1
         best_val_loss = float("inf")
 
+    print("Training with config: \n", config.model_dump_json(indent=1))
+
     model = model.to(get_device())
     loss_function = CrossEntropyLoss(ignore_index=0).to(get_device())
 
-    optimizer = get_optimizer(
-        model=model,
-        optim_type=config.optim_config.optim_type,
-        lr=config.optim_config.learning_rate,
-        momentum=config.optim_config.momentum,
-        weight_decay=config.optim_config.weight_decay,
-    )
+    optimizer = get_optimizer(model=model, optim_config=config.optim_config)
+    scheduler = get_scheduler(optimizer=optimizer, scheduler_config=config.scheduler_config)
 
     train_loader = DataLoader(
         data_train,
@@ -194,14 +212,12 @@ def train(
 
     val_loader = DataLoader(
         data_val,
-        batch_size=config.batch_size,
+        batch_size=config.batch_size * 2,
         pin_memory=False,
         shuffle=True,
-        drop_last=True,
+        drop_last=False,
     )
 
-    out_folder = Path(out_dir) / config_name
-    os.makedirs(out_folder, exist_ok=True)
     epochs_since_best_loss = 0
 
     for epoch in range(start_epoch, config.max_epochs):
@@ -209,36 +225,37 @@ def train(
             epoch=epoch,
             model=model,
             optimizer=optimizer,
+            scheduler=scheduler,
             loss_function=loss_function,
             train_loader=train_loader,
             config=config,
             converter=converter,
         )
 
-        # if epoch % config.evaluation_frequency == 0:
-        #     validation_loss = _evaluate(
-        #         epoch=epoch,
-        #         model=model,
-        #         val_loader=val_loader,
-        #     )
-        #     if validation_loss < best_val_loss:
-        #         epochs_since_best_loss = 0
-        #         best_val_loss = validation_loss
-        #         torch.save(
-        # {
-        #     "epoch": epoch,
-        #     "state": model.state_dict(),
-        #     "best_val_loss": best_val_loss,
-        #     "config": config.model_dump(),
-        #     "character_set": data_train.char_set,
-        #     "max_text_length": data_train.max_text_length,
-        # },
-        #             os.path.join(out_folder, "best"),
-        #         )
-        #     else:
-        #         epochs_since_best_loss += 1
+        if epoch % config.evaluation_frequency == 0:
+            validation_loss, character_error_rate, word_error_rate, _, _ = _evaluate(
+                epoch=epoch, model=model, data_loader=val_loader, converter=converter, loss_function=loss_function
+            )
+            if validation_loss < best_val_loss:
+                epochs_since_best_loss = 0
+                best_val_loss = validation_loss
+                torch.save(
+                    {
+                        "epoch": epoch,
+                        "state": model.state_dict(),
+                        "best_val_loss": best_val_loss,
+                        "config": config.model_dump(),
+                        "character_set": converter.original_character_set,
+                        "max_text_length": converter.max_text_length,
+                    },
+                    os.path.join(out_folder, "best"),
+                )
+            else:
+                epochs_since_best_loss += 1
 
-        #     print(f"Validation Loss at epoch {epoch}: {validation_loss}. Best Loss: {best_val_loss}")
+            print(
+                f"Validation Loss at epoch {epoch}: {validation_loss:.4f}, WER: {word_error_rate}, CER: {character_error_rate}. Best Loss so far: {best_val_loss}"
+            )
 
         torch.save(
             {
@@ -246,8 +263,8 @@ def train(
                 "state": model.state_dict(),
                 "best_val_loss": best_val_loss,
                 "config": config.model_dump(),
-                "character_set": data_train.char_set,
-                "max_text_length": data_train.max_length,
+                "character_set": converter.original_character_set,
+                "max_text_length": converter.max_text_length,
             },
             os.path.join(out_folder, f"{epoch}"),
         )
@@ -257,8 +274,8 @@ def train(
                 "state": model.state_dict(),
                 "best_val_loss": best_val_loss,
                 "config": config.model_dump(),
-                "character_set": data_train.char_set,
-                "max_text_length": data_train.max_length,
+                "character_set": converter.original_character_set,
+                "max_text_length": converter.max_text_length,
             },
             os.path.join(out_folder, "last"),
         )
@@ -270,6 +287,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--config_name", default="default_config", type=str)
     parser.add_argument("--out_dir", default="model_outputs")
+    parser.add_argument("--resume", action="store_true")
 
     args = parser.parse_args()
 

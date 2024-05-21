@@ -168,3 +168,6 @@ notebooks/test
 .DS_Store
 
 model_outputs/
+
+
+*.pkl

@@ -11,8 +11,15 @@ def get_dataset_folder_path():
 class OptimizerConfig(BaseModel):
     optim_type: str
     learning_rate: float
-    momentum: float
-    weight_decay: float
+    momentum: float | None
+    weight_decay: float | None
+    beta1: float | None
+    beta2: float | None
+
+
+class SchedulerConfig(BaseModel):
+    scheduler_type: str
+    params: dict[str, Any]
 
 
 class FeatureExtractorConfig(BaseModel):
@@ -28,6 +35,7 @@ class TrainingConfig(BaseModel):
     evaluation_frequency: int
     early_stopping_threshold: int
     optim_config: OptimizerConfig
+    scheduler_config: SchedulerConfig | None
     feature_extractor_config: FeatureExtractorConfig
     lstm_hidden_size: int
     max_text_length: int | None = None
