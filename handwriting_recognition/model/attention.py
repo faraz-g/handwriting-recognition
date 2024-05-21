@@ -41,6 +41,7 @@ class Attention(nn.Module):
             for i in range(num_steps):
                 # one-hot vectors for a i-th char. in a batch
                 char_onehots = self._char_to_onehot(text[:, i], onehot_dim=self.num_classes)
+
                 # hidden : decoder's hidden s_{t-1}, batch_H : encoder's hidden H, char_onehots : one-hot(y_{t-1})
                 hidden, alpha = self.attention_cell(hidden, batch_H, char_onehots)
                 output_hiddens[:, i, :] = hidden[0]  # LSTM hidden index (0: hidden, 1: Cell)
@@ -52,6 +53,7 @@ class Attention(nn.Module):
 
             for i in range(num_steps):
                 char_onehots = self._char_to_onehot(targets, onehot_dim=self.num_classes)
+
                 hidden, alpha = self.attention_cell(hidden, batch_H, char_onehots)
                 probs_step = self.generator(hidden[0])
                 probs[:, i, :] = probs_step

@@ -40,6 +40,7 @@ def resize_image(im_arr: np.ndarray, height: int, width: int) -> np.ndarray:
 
 
 def process_single_image(image_path: os.PathLike, target_folder: os.PathLike) -> None:
+    # Converts the image to greyscale
     image = Image.open(image_path).convert("L")
     # Binarize image
     im_arr = np.array(image)
