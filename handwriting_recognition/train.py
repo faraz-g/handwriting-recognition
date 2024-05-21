@@ -84,11 +84,6 @@ def _single_epoch(
             pbar.set_postfix_str(f"LR: {lr:.4f} Avg. Loss: {loss_tracker.val():.4f}")
             pbar.update()
 
-            if i % 1000 == 0:
-                print("Target Text:", converter.decode(target, length))
-                predicted_classes = preds.argmax(dim=-1)
-                print("Predicted Text:", converter.decode(predicted_classes, length))
-
             if i + 1 == max_batches:
                 return loss_tracker.val()
 
@@ -297,6 +292,7 @@ if __name__ == "__main__":
     parser.add_argument("--config_name", default="default_config", type=str)
     parser.add_argument("--out_dir", default="model_outputs")
     parser.add_argument("--resume", action="store_true")
+    parser.add_argument("--resume_from", type=str, default=None)
 
     args = parser.parse_args()
 
