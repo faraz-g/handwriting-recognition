@@ -10,7 +10,7 @@ import random
 
 from handwriting_recognition.label_converter import LabelConverter
 from handwriting_recognition.model.model import HandwritingRecognitionModel
-from handwriting_recognition.modelling_utils import get_image_model, get_optimizer
+from handwriting_recognition.modelling_utils import get_image_model, get_optimizer, get_scheduler
 from handwriting_recognition.utils import TrainingConfig, get_dataset_folder_path
 from handwriting_recognition.dataset import HandWritingDataset
 from pathlib import Path
@@ -44,6 +44,7 @@ def _single_epoch(
     epoch: int,
     model: torch.nn.Module,
     optimizer: torch.optim.Optimizer,
+    scheduler: torch.optim.lr_scheduler.LRScheduler,
     loss_function: CrossEntropyLoss,
     train_loader: DataLoader,
     config: TrainingConfig,
@@ -92,12 +93,12 @@ def _single_epoch(
             loss_tracker.add(loss)
 
             loss.backward()
-            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=3)
+            # torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=3)
             optimizer.step()
-
+            scheduler.step()
             # print(f"Epoch {epoch}, Loss: {loss.item()}")
 
-            lr = optimizer.param_groups[0]["lr"]
+            lr = scheduler.get_last_lr()[0]
             pbar.set_postfix_str(f"LR: {lr:.4f} Avg. Loss: {loss_tracker.val():.4f}")
             pbar.update()
 
@@ -176,13 +177,8 @@ def train(
     model = model.to(get_device())
     loss_function = CrossEntropyLoss(ignore_index=0).to(get_device())
 
-    optimizer = get_optimizer(
-        model=model,
-        optim_type=config.optim_config.optim_type,
-        lr=config.optim_config.learning_rate,
-        momentum=config.optim_config.momentum,
-        weight_decay=config.optim_config.weight_decay,
-    )
+    optimizer = get_optimizer(model=model, optim_config=config.optim_config)
+    scheduler = get_scheduler(optimizer=optimizer, scheduler_config=config.scheduler_config)
 
     train_loader = DataLoader(
         data_train,
@@ -209,6 +205,7 @@ def train(
             epoch=epoch,
             model=model,
             optimizer=optimizer,
+            scheduler=scheduler,
             loss_function=loss_function,
             train_loader=train_loader,
             config=config,
