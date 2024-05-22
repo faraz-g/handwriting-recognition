@@ -85,7 +85,9 @@ def _single_epoch(
             pbar.update()
 
             if i + 1 == max_batches:
-                return loss_tracker.val()
+                break
+
+    return loss_tracker.val()
 
 
 def _evaluate(
