@@ -84,13 +84,10 @@ def _single_epoch(
             pbar.set_postfix_str(f"LR: {lr:.4f} Avg. Loss: {loss_tracker.val():.4f}")
             pbar.update()
 
-            if i % 1000 == 0:
-                print("Target Text:", converter.decode(target, length))
-                predicted_classes = preds.argmax(dim=-1)
-                print("Predicted Text:", converter.decode(predicted_classes, length))
-
             if i + 1 == max_batches:
                 break
+
+    return loss_tracker.val()
 
 
 def _evaluate(
@@ -99,6 +96,7 @@ def _evaluate(
     data_loader: DataLoader,
     converter: LabelConverter,
     loss_function: CrossEntropyLoss,
+    max_iter: int | None = None,
 ):
     model = model.eval()
 
@@ -108,7 +106,7 @@ def _evaluate(
 
     with torch.inference_mode():
         pbar = tqdm(data_loader, desc=f"Validating Epoch: {epoch}", ncols=0)
-        for data in pbar:
+        for i, data in enumerate(pbar):
             images = data[0]
             labels = data[1]
 
@@ -132,6 +130,9 @@ def _evaluate(
             all_ground_truths.extend(ground_truth)
             all_preds.extend(predicted)
 
+            if max_iter is not None and i + 1 == max_iter:
+                break
+
     all_preds = [x[: x.find("[s]")] for x in all_preds]
     all_ground_truths = [x[: x.find("[s]")] for x in all_ground_truths]
 
@@ -145,11 +146,7 @@ def _evaluate(
     return loss_tracker.val(), character_error_rate, word_error_rate, all_preds, all_ground_truths
 
 
-def train(
-    config_name: str,
-    out_dir: str,
-    resume: bool = False,
-) -> None:
+def train(config_name: str, out_dir: str, resume: bool = False, resume_from: str = None) -> None:
     os.makedirs(out_dir, exist_ok=True)
     out_folder = Path(out_dir) / config_name
     os.makedirs(out_folder, exist_ok=True)
@@ -181,6 +178,8 @@ def train(
     model = HandwritingRecognitionModel(image_feature_extractor=image_model, training_config=config)
 
     if resume:
+        resume_from = resume_from if resume_from is not None else "last"
+
         saved_model = torch.load(os.path.join(out_folder, "last"))
         start_epoch = saved_model["epoch"] + 1
         model.load_state_dict(saved_model["state"])
@@ -221,7 +220,8 @@ def train(
     epochs_since_best_loss = 0
 
     for epoch in range(start_epoch, config.max_epochs):
-        _single_epoch(
+        validation_loss = None
+        current_train_loss = _single_epoch(
             epoch=epoch,
             model=model,
             optimizer=optimizer,
@@ -244,9 +244,11 @@ def train(
                         "epoch": epoch,
                         "state": model.state_dict(),
                         "best_val_loss": best_val_loss,
+                        "current_val_loss": validation_loss,
                         "config": config.model_dump(),
                         "character_set": converter.original_character_set,
                         "max_text_length": converter.max_text_length,
+                        "current_train_loss": current_train_loss,
                     },
                     os.path.join(out_folder, "best"),
                 )
@@ -262,9 +264,11 @@ def train(
                 "epoch": epoch,
                 "state": model.state_dict(),
                 "best_val_loss": best_val_loss,
+                "current_val_loss": validation_loss,
                 "config": config.model_dump(),
                 "character_set": converter.original_character_set,
                 "max_text_length": converter.max_text_length,
+                "current_train_loss": current_train_loss,
             },
             os.path.join(out_folder, f"{epoch}"),
         )
@@ -273,9 +277,11 @@ def train(
                 "epoch": epoch,
                 "state": model.state_dict(),
                 "best_val_loss": best_val_loss,
+                "current_val_loss": validation_loss,
                 "config": config.model_dump(),
                 "character_set": converter.original_character_set,
                 "max_text_length": converter.max_text_length,
+                "current_train_loss": current_train_loss,
             },
             os.path.join(out_folder, "last"),
         )
@@ -288,6 +294,7 @@ if __name__ == "__main__":
     parser.add_argument("--config_name", default="default_config", type=str)
     parser.add_argument("--out_dir", default="model_outputs")
     parser.add_argument("--resume", action="store_true")
+    parser.add_argument("--resume_from", type=str, default=None)
 
     args = parser.parse_args()
 
