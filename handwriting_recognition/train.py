@@ -1,21 +1,24 @@
 import argparse
 import os
 
-import numpy as np
 import torch
 from torch.nn.modules.loss import CrossEntropyLoss
 from torch.utils.data.dataloader import DataLoader
 from tqdm import tqdm
-import random
 
 from handwriting_recognition.label_converter import LabelConverter
 from handwriting_recognition.model.model import HandwritingRecognitionModel
-from handwriting_recognition.modelling_utils import get_image_model, get_optimizer, get_scheduler
-from handwriting_recognition.utils import TrainingConfig, get_dataset_folder_path
+from handwriting_recognition.modelling_utils import get_optimizer, get_scheduler
+from handwriting_recognition.utils import get_dataset_folder_path
 from handwriting_recognition.dataset import HandWritingDataset
-from pathlib import Path
 from handwriting_recognition.modelling_utils import get_device
 from handwriting_recognition.eval import cer, wer
+
+from ray import train
+from ray.train import Checkpoint, get_checkpoint
+import tempfile
+from typing import Any
+import json
 
 torch.backends.cudnn.benchmark = True
 
@@ -48,10 +51,10 @@ def _single_epoch(
     scheduler: torch.optim.lr_scheduler.LRScheduler,
     loss_function: CrossEntropyLoss,
     train_loader: DataLoader,
-    config: TrainingConfig,
+    config: dict[str, Any],
     converter: LabelConverter,
 ):
-    max_batches = config.batches_per_epoch
+    max_batches = config["batches_per_epoch"]
     model = model.train()
     loss_tracker = LossTracker()
 
@@ -87,7 +90,7 @@ def _single_epoch(
             if i + 1 == max_batches:
                 break
 
-    return loss_tracker.val()
+    return loss_tracker.val().item()
 
 
 def _evaluate(
@@ -136,74 +139,71 @@ def _evaluate(
     all_preds = [x[: x.find("[s]")] for x in all_preds]
     all_ground_truths = [x[: x.find("[s]")] for x in all_ground_truths]
 
-    print("Outputting sample of validation outputs.")
-    print(all_preds[:10])
-    print(all_ground_truths[:10])
-
     character_error_rate = cer(all_preds, all_ground_truths)
     word_error_rate = wer(all_preds, all_ground_truths)
 
-    return loss_tracker.val(), character_error_rate, word_error_rate, all_preds, all_ground_truths
+    return loss_tracker.val().item(), character_error_rate.item(), word_error_rate.item(), all_preds, all_ground_truths
 
 
-def train(config_name: str, out_dir: str, resume: bool = False, resume_from: str = None) -> None:
-    os.makedirs(out_dir, exist_ok=True)
-    out_folder = Path(out_dir) / config_name
-    os.makedirs(out_folder, exist_ok=True)
-
-    config_path = Path(__file__).parent.joinpath("configs", config_name).with_suffix(".json")
-    config = TrainingConfig.from_path(config_path=config_path)
-
-    random.seed(config.seed)
-    np.random.seed(config.seed)
-    torch.manual_seed(config.seed)
-    torch.cuda.manual_seed(config.seed)
-
-    image_model = get_image_model(model_name=config.feature_extractor_config.model_name)
-
+def train_handwriting_recognition(config: dict[str, Any]) -> None:
     data_train = HandWritingDataset(
         data_path=get_dataset_folder_path() / "pre_processed" / "train.csv",
-        img_size=config.feature_extractor_config.input_size,
+        img_size=config["feature_extractor_config"]["input_size"],
     )
     data_val = HandWritingDataset(
         data_path=get_dataset_folder_path() / "pre_processed" / "validation.csv",
-        img_size=config.feature_extractor_config.input_size,
+        img_size=config["feature_extractor_config"]["input_size"],
     )
 
-    config.max_text_length = data_train.max_length
     converter = LabelConverter(character_set=data_train.char_set, max_text_length=data_train.max_length)
 
-    config.num_classes = len(converter.characters)
+    model = HandwritingRecognitionModel(
+        image_feature_extractor_name=config["feature_extractor_config"]["model_name"],
+        num_classes=len(converter.characters),
+        max_text_length=data_train.max_length,
+        lstm_hidden_size=config["lstm_hidden_size"],
+        attention_hidden_size=config["attention_hidden_size"],
+    )
 
-    model = HandwritingRecognitionModel(image_feature_extractor=image_model, training_config=config)
+    optimizer = get_optimizer(model=model, optim_config=config["optim_config"])
 
-    if resume:
-        resume_from = resume_from if resume_from is not None else "last"
+    checkpoint = get_checkpoint()
+    if checkpoint:
+        with checkpoint.as_directory() as checkpoint_dir:
+            saved_model = torch.load(os.path.join(checkpoint_dir, "checkpoint.pt"))
 
-        saved_model = torch.load(os.path.join(out_folder, "last"))
-        start_epoch = saved_model["epoch"] + 1
-        model.load_state_dict(saved_model["state"])
-        best_val_loss = saved_model["best_val_loss"]
-        converter = LabelConverter(
-            character_set=saved_model["character_set"], max_text_length=saved_model["max_text_length"]
-        )
-        config = TrainingConfig(**saved_model["config"])
+            start_epoch = saved_model["epoch"] + 1
+            model.load_state_dict(saved_model["state"])
+            optimizer.load_state_dict(saved_model["optim_state"])
 
+            converter = LabelConverter(
+                character_set=saved_model["character_set"], max_text_length=saved_model["max_text_length"]
+            )
+            config = saved_model["config"]
+            best_val_loss = saved_model["best_val_loss"]
+
+            all_val_loss = saved_model["all_val_loss"]
+            all_train_loss = saved_model["all_train_loss"]
+            all_wer = saved_model["all_wer"]
+            all_cer = saved_model["all_cer"]
     else:
         start_epoch = 1
         best_val_loss = float("inf")
+        all_val_loss = []
+        all_train_loss = []
+        all_wer = []
+        all_cer = []
 
-    print("Training with config: \n", config.model_dump_json(indent=1))
+    print("Training with config: \n", json.dumps(config))
 
     model = model.to(get_device())
     loss_function = CrossEntropyLoss(ignore_index=0).to(get_device())
 
-    optimizer = get_optimizer(model=model, optim_config=config.optim_config)
-    scheduler = get_scheduler(optimizer=optimizer, scheduler_config=config.scheduler_config)
+    scheduler = get_scheduler(optimizer=optimizer, scheduler_config=config["scheduler_config"])
 
     train_loader = DataLoader(
         data_train,
-        batch_size=config.batch_size,
+        batch_size=config["batch_size"],
         pin_memory=False,
         shuffle=True,
         drop_last=True,
@@ -211,16 +211,14 @@ def train(config_name: str, out_dir: str, resume: bool = False, resume_from: str
 
     val_loader = DataLoader(
         data_val,
-        batch_size=config.batch_size * 2,
+        batch_size=config["batch_size"],
         pin_memory=False,
         shuffle=True,
         drop_last=False,
     )
 
     epochs_since_best_loss = 0
-
-    for epoch in range(start_epoch, config.max_epochs):
-        validation_loss = None
+    for epoch in range(start_epoch, config["max_epochs"]):
         current_train_loss = _single_epoch(
             epoch=epoch,
             model=model,
@@ -231,61 +229,54 @@ def train(config_name: str, out_dir: str, resume: bool = False, resume_from: str
             config=config,
             converter=converter,
         )
+        all_train_loss.append(current_train_loss)
 
-        if epoch % config.evaluation_frequency == 0:
-            validation_loss, character_error_rate, word_error_rate, _, _ = _evaluate(
-                epoch=epoch, model=model, data_loader=val_loader, converter=converter, loss_function=loss_function
-            )
-            if validation_loss < best_val_loss:
-                epochs_since_best_loss = 0
-                best_val_loss = validation_loss
-                torch.save(
-                    {
-                        "epoch": epoch,
-                        "state": model.state_dict(),
-                        "best_val_loss": best_val_loss,
-                        "current_val_loss": validation_loss,
-                        "config": config.model_dump(),
-                        "character_set": converter.original_character_set,
-                        "max_text_length": converter.max_text_length,
-                        "current_train_loss": current_train_loss,
-                    },
-                    os.path.join(out_folder, "best"),
-                )
-            else:
-                epochs_since_best_loss += 1
-
-            print(
-                f"Validation Loss at epoch {epoch}: {validation_loss:.4f}, WER: {word_error_rate}, CER: {character_error_rate}. Best Loss so far: {best_val_loss}"
-            )
-
-        torch.save(
-            {
-                "epoch": epoch,
-                "state": model.state_dict(),
-                "best_val_loss": best_val_loss,
-                "current_val_loss": validation_loss,
-                "config": config.model_dump(),
-                "character_set": converter.original_character_set,
-                "max_text_length": converter.max_text_length,
-                "current_train_loss": current_train_loss,
-            },
-            os.path.join(out_folder, f"{epoch}"),
+        validation_loss, character_error_rate, word_error_rate, _, _ = _evaluate(
+            epoch=epoch, model=model, data_loader=val_loader, converter=converter, loss_function=loss_function
         )
-        torch.save(
-            {
-                "epoch": epoch,
-                "state": model.state_dict(),
-                "best_val_loss": best_val_loss,
-                "current_val_loss": validation_loss,
-                "config": config.model_dump(),
-                "character_set": converter.original_character_set,
-                "max_text_length": converter.max_text_length,
-                "current_train_loss": current_train_loss,
-            },
-            os.path.join(out_folder, "last"),
+
+        all_val_loss.append(validation_loss)
+        all_cer.append(character_error_rate)
+        all_wer.append(word_error_rate)
+
+        if validation_loss < best_val_loss:
+            best_val_loss = validation_loss
+            epochs_since_best_loss = 0
+        else:
+            epochs_since_best_loss += 1
+
+        print(
+            f"Validation Loss at epoch {epoch}: {validation_loss:.4f}, WER: {word_error_rate}, CER: {character_error_rate}. Best Loss so far: {best_val_loss}, Epochs Since Best Loss: {epochs_since_best_loss}"
         )
-        if epochs_since_best_loss > config.early_stopping_threshold:
+
+        checkpoint_data = {
+            "epoch": epoch,
+            "state": model.state_dict(),
+            "optim_state": optimizer.state_dict(),
+            "current_val_loss": validation_loss,
+            "config": config,
+            "character_set": converter.original_character_set,
+            "max_text_length": converter.max_text_length,
+            "current_train_loss": current_train_loss,
+            "val_character_error_rate": character_error_rate,
+            "val_word_error_rate": word_error_rate,
+            "best_val_loss": best_val_loss,
+            "all_train_loss": all_train_loss,
+            "all_val_loss": all_val_loss,
+            "all_cer": all_cer,
+            "all_wer": all_wer,
+        }
+
+        with tempfile.TemporaryDirectory() as checkpoint_dir:
+            out_path = os.path.join(checkpoint_dir, "checkpoint.pt")
+            torch.save(checkpoint_data, out_path)
+            checkpoint = Checkpoint.from_directory(checkpoint_dir)
+            train.report(
+                {"val_loss": validation_loss, "character_error_rate": character_error_rate}, checkpoint=checkpoint
+            )
+
+        if epochs_since_best_loss > config["early_stopping_threshold"]:
+            print(f"Stopping training at epoch {epoch} because of early stopping")
             break
 
 

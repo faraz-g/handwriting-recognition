@@ -1,6 +1,6 @@
 import json
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 from pydantic import BaseModel
 
 
@@ -32,7 +32,6 @@ class TrainingConfig(BaseModel):
     batch_size: int
     batches_per_epoch: int
     max_epochs: int
-    evaluation_frequency: int
     early_stopping_threshold: int
     optim_config: OptimizerConfig
     scheduler_config: SchedulerConfig | None
