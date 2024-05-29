@@ -31,7 +31,7 @@ from typing import Any
 import shutil
 
 CONFIG_SEARCH_SPACE = {
-    "batch_size": tune.choice([16, 32, 64, 128, 192, 256]),
+    "batch_size": tune.choice([16, 32, 64, 128, 192]),
     "lstm_hidden_size": tune.choice([64, 128, 256, 512]),
     "attention_hidden_size": tune.choice([64, 128, 256, 512]),
     "batches_per_epoch": tune.choice([500, 5000, 10000]),
@@ -47,7 +47,7 @@ OPTIM_CONFIG_SEARCH_SPACE = {
 
 SCHEDULER_CONFIG_SEARCH_SPACE = {
     "scheduler_type": "cosine",
-    "params": {"T_max": tune.randint(10, 100), "eta_min": tune.loguniform(1e-4, 1e-1)},
+    "params": {"T_max": tune.randint(10, 100), "eta_min": tune.loguniform(1e-4, 1e-2)},
 }
 
 
@@ -104,7 +104,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--config_name", default="default_config", type=str)
     parser.add_argument("--out_dir", default="model_outputs")
-    parser.add_argument("--num_samples", type=int, default=25)
+    parser.add_argument("--num_samples", type=int, default=50)
 
     args = parser.parse_args()
 
